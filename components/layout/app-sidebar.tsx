@@ -74,7 +74,7 @@ export default function AppSidebar() {
   };
 
   return (
-    <aside className="relative w-64 bg-slate-950 text-white h-screen border-r border-slate-800 flex flex-col">
+    <aside className="relative w-64 bg-slate-950 text-white min-h-screen border-r border-slate-800 flex flex-col">
       <div className="p-6 border-b border-slate-800">
         <h1 className="text-xl font-bold">
           HMSoft
