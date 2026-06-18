@@ -1,5 +1,6 @@
 import AppSidebar from "@/components/layout/app-sidebar";
 import DashboardHeader from "@/components/layout/app-header";
+import { AuthProvider } from "@/contexts/auth-context";
 
 export default function DashboardLayout({
   children,
@@ -7,16 +8,18 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen bg-slate-100">
-      <AppSidebar />
+    <AuthProvider>
+      <div className="flex min-h-screen bg-slate-100">
+        <AppSidebar />
 
-      <main className="flex-1">
-        <DashboardHeader />
+        <main className="flex-1">
+          <DashboardHeader />
 
-        <div className="p-6">
-          {children}
-        </div>
-      </main>
-    </div>
+          <div className="p-6">
+            {children}
+          </div>
+        </main>
+      </div>
+    </AuthProvider>
   );
 }

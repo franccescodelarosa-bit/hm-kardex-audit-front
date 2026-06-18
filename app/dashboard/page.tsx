@@ -1,45 +1,28 @@
+"use client";
+
+import {
+  useAuth,
+} from "@/contexts/auth-context";
+
 export default function DashboardPage() {
+  const { user } =
+    useAuth();
+
   return (
     <div className="grid grid-cols-4 gap-6">
-      <div className="bg-white rounded-xl shadow-sm p-6">
-        <p className="text-sm text-slate-500">
-          Auditorías
-        </p>
 
-        <h2 className="text-3xl font-bold mt-2">
-          12
+      <div className="col-span-4 bg-white rounded-xl shadow-sm p-6">
+        <h2 className="text-xl font-bold">
+          Bienvenido {user?.full_name}
         </h2>
+
+        <p className="mt-2 text-slate-500">
+          Rol:
+          {" "}
+          {user?.role}
+        </p>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm p-6">
-        <p className="text-sm text-slate-500">
-          Clientes
-        </p>
-
-        <h2 className="text-3xl font-bold mt-2">
-          4
-        </h2>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm p-6">
-        <p className="text-sm text-slate-500">
-          Observaciones
-        </p>
-
-        <h2 className="text-3xl font-bold mt-2">
-          27
-        </h2>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm p-6">
-        <p className="text-sm text-slate-500">
-          Reportes
-        </p>
-
-        <h2 className="text-3xl font-bold mt-2">
-          8
-        </h2>
-      </div>
     </div>
   );
 }

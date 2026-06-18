@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { signIn } from "aws-amplify/auth";
+import { signIn, fetchAuthSession } from "aws-amplify/auth";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -23,13 +23,36 @@ export default function LoginPage() {
     try {
       setLoading(true);
       setError("");
-
-      const response = await signIn({
+      const result = await signIn({
         username: email,
         password,
       });
 
-      console.log("LOGIN SUCCESS", response);
+      console.log("LOGIN", result);
+
+      if (
+        result.nextStep?.signInStep ===
+        "CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED"
+      ) {
+        router.push(
+          `/change-password?email=${encodeURIComponent(email)}`
+        );
+
+        return;
+      }
+      if (!result.isSignedIn) {
+        throw new Error(
+          "No se pudo iniciar sesión"
+        );
+      }
+
+      const session =
+        await fetchAuthSession();
+
+      console.log(
+        "ID TOKEN",
+        session.tokens?.idToken?.toString()
+      );
 
       router.push("/dashboard");
     } catch (err: any) {

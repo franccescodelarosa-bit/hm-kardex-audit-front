@@ -13,47 +13,55 @@ import {
   Settings,
 } from "lucide-react";
 
-const role = "SUPER_ADMIN";
-
-const menu = [
-  {
-    label: "Dashboard",
-    href: "/dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    label: "Clientes",
-    href: "/dashboard/clients",
-    icon: Building2,
-  },
-  {
-    label: "Auditorías",
-    href: "/dashboard/audits",
-    icon: ClipboardList,
-  },
-  {
-    label: "Reportes",
-    href: "/dashboard/reports",
-    icon: FileBarChart2,
-  },
-];
-
-if (role === "SUPER_ADMIN") {
-  menu.push({
-    label: "Usuarios",
-    href: "/dashboard/users",
-    icon: Users,
-  });
-}
-
-menu.push({
-  label: "Configuración",
-  href: "/dashboard/settings",
-  icon: Settings,
-});
+import {
+  useAuth,
+} from "@/contexts/auth-context";
 
 export default function AppSidebar() {
   const router = useRouter();
+
+  const { user } =
+    useAuth();
+
+  const menu = [
+    {
+      label: "Dashboard",
+      href: "/dashboard",
+      icon: LayoutDashboard,
+    },
+    {
+      label: "Clientes",
+      href: "/dashboard/clients",
+      icon: Building2,
+    },
+    {
+      label: "Auditorías",
+      href: "/dashboard/audits",
+      icon: ClipboardList,
+    },
+    {
+      label: "Reportes",
+      href: "/dashboard/reports",
+      icon: FileBarChart2,
+    },
+  ];
+
+  if (
+    user?.role ===
+    "SUPER_ADMIN"
+  ) {
+    menu.push({
+      label: "Usuarios",
+      href: "/dashboard/users",
+      icon: Users,
+    });
+  }
+
+  menu.push({
+    label: "Configuración",
+    href: "/dashboard/settings",
+    icon: Settings,
+  });
 
   const handleLogout = async () => {
     try {
@@ -79,7 +87,8 @@ export default function AppSidebar() {
 
       <nav className="flex-1 p-4 space-y-1">
         {menu.map((item) => {
-          const Icon = item.icon;
+          const Icon =
+            item.icon;
 
           return (
             <Link
@@ -88,7 +97,10 @@ export default function AppSidebar() {
               className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition"
             >
               <Icon size={18} />
-              <span>{item.label}</span>
+
+              <span>
+                {item.label}
+              </span>
             </Link>
           );
         })}
@@ -96,7 +108,9 @@ export default function AppSidebar() {
 
       <div className="border-t border-slate-800 p-4">
         <button
-          onClick={handleLogout}
+          onClick={
+            handleLogout
+          }
           className="w-full bg-red-600 hover:bg-red-700 rounded-lg px-4 py-3 text-sm transition"
         >
           Cerrar sesión
