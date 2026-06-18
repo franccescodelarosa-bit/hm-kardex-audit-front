@@ -97,7 +97,22 @@ export default function AuditsPage() {
             console.error(error);
         }
     };
+    const statusColors = {
+    PENDING:
+        "bg-yellow-100 text-yellow-700",
 
+    IN_PROGRESS:
+        "bg-blue-100 text-blue-700",
+
+    READY_FOR_AUDIT:
+        "bg-green-100 text-green-700",
+
+    AUDITING:
+        "bg-purple-100 text-purple-700",
+
+    COMPLETED:
+        "bg-emerald-100 text-emerald-700",
+    };
     const createAudit = async () => {
         try {
 
@@ -250,8 +265,14 @@ export default function AuditsPage() {
                                     </div>
                                 </div>
                                 <div>
-                                    <span className="inline-flex mt-2 px-2 py-1 rounded-full bg-yellow-100 text-yellow-700 text-xs">
-                                        {audit.status}
+                                    <span
+                                    className={`px-3 py-1 rounded-full text-sm font-medium ${
+                                        statusColors[
+                                        audit.status as keyof typeof statusColors
+                                        ]
+                                    }`}
+                                    >
+                                    {audit.status}
                                     </span>
                                 </div>
                             </div>     
