@@ -57,12 +57,6 @@ export default function AppSidebar() {
     });
   }
 
-  menu.push({
-    label: "Configuración",
-    href: "/dashboard/settings",
-    icon: Settings,
-  });
-
   const handleLogout = async () => {
     try {
       await signOut();
