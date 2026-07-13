@@ -61,7 +61,7 @@ export default function ReportDetailPage() {
         }
         if (typeof value === "object" && value !== null) {
             return (
-                <div className="space-y-2 flex flex-row gap-3">
+                <div className="space-y-2 flex flex-row flex-wrap gap-3">
                     {
                         Object.entries(value).map(([key, val]) => (
                             <div key={key} className="border rounded-lg p-3">
