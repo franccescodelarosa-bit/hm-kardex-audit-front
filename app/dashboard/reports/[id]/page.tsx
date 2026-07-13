@@ -196,7 +196,7 @@ export default function ReportDetailPage() {
                         </button>
                     }
                 </div>
-                <div className="space-y-2 flex gap-3">
+                <div className="space-y-2 flex flex-wrap gap-3">
                     {
                         rules.map(rule => {
                             const selected = selectedRule === rule.id;
