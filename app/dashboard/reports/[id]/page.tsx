@@ -5,6 +5,8 @@ import { getFinding } from "@/services/audit-results.services";
 import { getDashboard, getRules, getFindings } from "@/services/audit-results.services";
 import { FileSpreadsheet } from "lucide-react";
 import { fetchAuthSession } from "aws-amplify/auth";
+import { ExecutiveDashboardHelper } from "../../../../components/helpers/executive-dashboard.helper";
+import { updateAuditFollowUp } from "../../../../services/audit-results.services";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 export default function ReportDetailPage() {
@@ -137,44 +139,246 @@ export default function ReportDetailPage() {
             alert("No se pudo descargar el Excel.");
         }
     };
+    useEffect(() => {
+        if (!dashboard?.followUp) {
+            return;
+        }
+        setResponsible(
+            dashboard.followUp.responsible ?? ""
+        );
+        setRegularizationDate(
+            dashboard.followUp.regularizationDate
+                ? dashboard.followUp.regularizationDate.substring(0, 10)
+                : ""
+        );
+        setCorrectiveAction(
+            dashboard.followUp.correctiveAction ?? ""
+        );
+        setObservations(
+            dashboard.followUp.observations ?? ""
+        );
+    }, [dashboard]);
+    const [validationStatus] = useState("PENDIENTE");
+    const [regularizationDate, setRegularizationDate] = useState("");
+    const [correctiveAction, setCorrectiveAction] = useState("");
+    const [observations, setObservations] = useState("");
+    const [responsible, setResponsible] = useState("");
+    const [saving, setSaving] = useState(false);    
+    
+    const saveFollowUp = async () => {
+        try {
+            setSaving(true);
+            const result = await updateAuditFollowUp(
+                dashboard.audit.id,
+                {
+                    validationStatus,
+                    regularizationDate: regularizationDate || null,
+                    correctiveAction,
+                    observations,
+                    responsible
+                }
+            );
+
+            alert(
+                `Seguimiento actualizado correctamente.\n` +
+                `Responsable: ${result.responsible}\n` +
+                `Fecha: ${new Date(result.updated_at).toLocaleString("es-PE")}`
+            );
+        }
+        catch {
+            console.error(
+                "No fue posible guardar el seguimiento."
+            );
+        }
+        finally {
+            setSaving(false);
+        }
+
+    };
     if (loading)
         return <div className="p-10">Cargando...</div>;
     return (
         <div className="p-8 space-y-8">
-            <div>
-                <h1 className="text-4xl font-bold">
-                    {dashboard.audit.client}
-                </h1>
-                <p className="text-gray-500">
-                    Auditoría {dashboard.audit.year}
-                </p>
-            </div>
-            <div className="grid grid-cols-4 gap-4">
-                <div className="bg-white rounded-xl shadow p-6">
-                    <p className="text-gray-500">
-                        Hallazgos
-                    </p>
-                    <h2 className="text-4xl font-bold">
-                        {dashboard.summary.totalFindings}
-                    </h2>
+            <div className="grid grid-cols-12 gap-8">
+                <div className="col-span-8">
+                    <div className="flex gap-2 align-center mb-2">                        
+                        <span
+                            className={`rounded-full px-4 py-2 text-sm font-bold ${
+                                dashboard.summary.generalStatus === "APROBADO"
+                                    ? "bg-green-100 text-green-700"
+                                    : dashboard.summary.generalStatus === "CRÍTICO"
+                                    ? "bg-red-100 text-red-700"
+                                    : "bg-yellow-100 text-yellow-700"
+                            }`}
+                        >
+                            {dashboard.summary.generalStatus}
+                        </span>
+                        <h1 className="text-4xl font-bold">
+                            {dashboard.audit.client}
+                        </h1>
+                    </div>
+                    <h4 className="text-sm text-slate-500 mt-1">
+                        ID: {dashboard.audit.id}
+                    </h4>
+                    <p className="text-gray-500 mt-1">
+                        Auditoría {dashboard.audit.year}
+                    </p>               
+                    <div className="mt-6 grid grid-cols-3 gap-4">
+                        <div className="rounded-xl bg-white p-5">
+                            <p className="text-sm text-slate-600">
+                                Reglas Ejecutadas
+                            </p>
+                            <h2 className="mt-2 text-3xl font-bold">
+                                {dashboard.summary.executedRules}
+                            </h2>
+                        </div>
+                        <div className="rounded-xl bg-white p-5">
+                            <p className="text-sm text-slate-600">
+                                Cumplimiento
+                            </p>
+                            <h2 className="mt-2 text-3xl font-bold">
+                                {dashboard.summary.compliance}%
+                            </h2>
+                        </div>
+
+                        <div className="rounded-xl bg-white p-5">
+                            <p className="text-sm text-slate-600">
+                                Productos Afectados
+                            </p>
+                            <h2 className="mt-2 text-3xl font-bold">
+                                {dashboard.summary.affectedProducts}
+                            </h2>
+                        </div>
+
+                        <div className="rounded-xl bg-white p-5">
+                            <p className="text-sm text-slate-600">
+                                Reglas Incumplidas
+                            </p>
+                            <h2 className="mt-2 text-3xl font-bold">
+                                {dashboard.summary.failedRules}
+                            </h2>
+                        </div>
+
+                        <div className="rounded-xl bg-white p-5">
+                            <p className="text-sm text-slate-600">
+                                Impacto Económico
+                            </p>
+                            <h2 className="mt-2 text-3xl font-bold">
+                                S/. {dashboard.summary.economicImpact.toLocaleString()}
+                            </h2>
+                        </div>
+                        <div className="rounded-xl bg-white p-5">
+                            <p className="text-sm text-slate-600">
+                                Reglas Aprobadas
+                            </p>
+                            <h2 className="mt-2 text-3xl font-bold">
+                                {dashboard.summary.passedRules}
+                            </h2>
+                        </div>
+                    </div>     
+                    <div className="mt-5 grid grid-cols-4 gap-4">
+                        <div className="bg-white rounded-xl shadow p-6">
+                            <p className="text-gray-500">
+                                Hallazgos
+                            </p>
+                            <h2 className="text-4xl font-bold">
+                                {dashboard.summary.totalFindings}
+                            </h2>
+                        </div>
+                        <div className="bg-red-50 rounded-xl p-6">
+                            <p>CRITICO</p>
+                            <h2 className="text-3xl font-bold">
+                                {findings.summary.critical}
+                            </h2>
+                        </div>
+                        <div className="bg-yellow-50 rounded-xl p-6">
+                            <p>ALTO</p>
+                            <h2 className="text-3xl font-bold">
+                                {findings.summary.high}
+                            </h2>
+                        </div>
+                        <div className="bg-green-50 rounded-xl p-6">
+                            <p>MEDIO</p>
+                            <h2 className="text-3xl font-bold">
+                                {findings.summary.medium}
+                            </h2>
+                        </div>
+                    </div>
                 </div>
-                <div className="bg-red-50 rounded-xl p-6">
-                    <p>CRITICO</p>
-                    <h2 className="text-3xl font-bold">
-                        {findings.summary.critical}
-                    </h2>
-                </div>
-                <div className="bg-yellow-50 rounded-xl p-6">
-                    <p>ALTO</p>
-                    <h2 className="text-3xl font-bold">
-                        {findings.summary.high}
-                    </h2>
-                </div>
-                <div className="bg-green-50 rounded-xl p-6">
-                    <p>MEDIO</p>
-                    <h2 className="text-3xl font-bold">
-                        {findings.summary.medium}
-                    </h2>
+                <div className="col-span-4 rounded-xl border bg-white shadow-sm p-5">
+                    <h3 className="text-lg font-bold mb-4">
+                        Seguimiento de Regularización
+                    </h3>
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium mb-1">
+                                Responsable
+                            </label>
+                            <input
+                                value={responsible}
+                                onChange={(e) => setResponsible(e.target.value)}
+                                className="w-full rounded-lg border p-2"
+                                placeholder="Nombre del responsable"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium mb-1">
+                                Fecha de Regularización
+                            </label>
+                            <input
+                                type="date"
+                                value={regularizationDate}
+                                onChange={(e) => setRegularizationDate(e.target.value)}
+                                className="w-full rounded-lg border p-2"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium mb-1">
+                                Acción Correctiva
+                            </label>
+                            <textarea
+                                rows={2}
+                                value={correctiveAction}
+                                onChange={(e) => setCorrectiveAction(e.target.value)}
+                                className="w-full rounded-lg border p-2"
+                                placeholder="Acciones realizadas para regularizar..."
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium mb-1">
+                                Observaciones
+                            </label>
+                            <textarea
+                                rows={3}
+                                value={observations}
+                                onChange={(e) => setObservations(e.target.value)}
+                                className="w-full rounded-lg border p-2"
+                                placeholder="Observaciones adicionales..."
+                            />
+                        </div>
+                        <button
+                            onClick={saveFollowUp}
+                            disabled={saving}
+                            className="
+                                w-full
+                                rounded-lg
+                                bg-blue-600
+                                py-2
+                                font-semibold
+                                text-white
+                                hover:bg-blue-700
+                                disabled:opacity-50
+                            "
+                        >
+
+                            {
+                                saving
+                                    ? "Guardando..."
+                                    : "Guardar Seguimiento"
+                            }
+
+                        </button>
+                    </div>
                 </div>
             </div>
             <div className="rounded-lg border bg-white p-4">
