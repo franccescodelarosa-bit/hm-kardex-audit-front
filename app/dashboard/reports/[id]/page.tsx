@@ -19,7 +19,8 @@ export default function ReportDetailPage() {
     const [page, setPage] = useState(1);
     const [selectedRule, setSelectedRule] = useState("");
     const [selectedRisk, setSelectedRisk] = useState("");
-    const pageSize = 10;
+    const [pageSize, setPageSize] = useState(25);
+    const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
     useEffect(() => {
         load();
     }, []);
@@ -50,6 +51,40 @@ export default function ReportDetailPage() {
             warehouse: "Almacén"
         };
         return labels[key] ?? key;
+    }
+    /**
+     * Arma la lista de números de página a mostrar, con "..." cuando hay
+     * demasiadas páginas para listarlas todas (evita, por ejemplo, tener
+     * que renderizar 565 botones cuando una regla tiene miles de hallazgos).
+     * Siempre muestra la primera, la última, y una ventana alrededor de la
+     * página actual.
+     */
+    function getPageNumbers(current: number, totalPages: number): (number | "...")[] {
+        if (totalPages <= 7) {
+            return Array.from({ length: totalPages }, (_, i) => i + 1);
+        }
+        const pages: (number | "...")[] = [1];
+        if (current > 3) {
+            pages.push("...");
+        }
+        const start = Math.max(2, current - 1);
+        const end = Math.min(totalPages - 1, current + 1);
+        for (let p = start; p <= end; p++) {
+            pages.push(p);
+        }
+        if (current < totalPages - 2) {
+            pages.push("...");
+        }
+        pages.push(totalPages);
+        return pages;
+    }
+    function handlePageSizeChange(newSize: number) {
+        setPageSize(newSize);
+        setPage(1);
+    }
+    function goToPage(jumpTo: number, totalPages: number) {
+        const target = Math.min(Math.max(1, jumpTo), totalPages);
+        setPage(target);
     }
     function renderMetadata(value: any) {
         if (Array.isArray(value)) {
@@ -83,7 +118,7 @@ export default function ReportDetailPage() {
     }
     useEffect(() => {
         loadFindings();
-    }, [page, selectedRule, selectedRisk]);
+    }, [page, pageSize, selectedRule, selectedRisk]);
     async function load() {
         setLoading(true);
         const [ dashboard, rules ] = await Promise.all([
@@ -163,7 +198,8 @@ export default function ReportDetailPage() {
     const [correctiveAction, setCorrectiveAction] = useState("");
     const [observations, setObservations] = useState("");
     const [responsible, setResponsible] = useState("");
-    const [saving, setSaving] = useState(false);    
+    const [saving, setSaving] = useState(false);
+    const [jumpValue, setJumpValue] = useState("");
     
     const saveFollowUp = async () => {
         try {
@@ -483,19 +519,101 @@ export default function ReportDetailPage() {
                     </tbody>
                 </table>
             </div>
-            <div className="flex justify-between">
-                <button
-                    disabled={page === 1}
-                    onClick={() => setPage(page - 1)}
-                    className="border rounded px-4 py-2"
-                >Anterior</button>
-                <span>Página {page}</span>
-                <button
-                    disabled={page * pageSize >= findings?.total}
-                    onClick={() => setPage(page + 1)}
-                    className="border rounded px-4 py-2"
-                >Siguiente</button>
-            </div>
+            {
+                findings &&
+                (() => {
+                    const total = findings.total ?? 0;
+                    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+                    const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
+                    const rangeEnd = Math.min(page * pageSize, total);
+                    return (
+                        <div className="flex flex-col gap-3 rounded-lg border bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex items-center gap-3 text-sm text-slate-500">
+                                <span>
+                                    Mostrando <b className="text-slate-700">{rangeStart}–{rangeEnd}</b> de <b className="text-slate-700">{total}</b> hallazgos
+                                </span>
+                                <label className="flex items-center gap-2">
+                                    <span>Por página:</span>
+                                    <select
+                                        value={pageSize}
+                                        onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                                        className="rounded border px-2 py-1"
+                                    >
+                                        {PAGE_SIZE_OPTIONS.map(size => (
+                                            <option key={size} value={size}>{size}</option>
+                                        ))}
+                                    </select>
+                                </label>
+                            </div>
+                            <div className="flex items-center gap-1 flex-wrap">
+                                <button
+                                    disabled={page === 1}
+                                    onClick={() => goToPage(1, totalPages)}
+                                    className="border rounded px-3 py-1.5 text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
+                                    title="Primera página"
+                                >«</button>
+                                <button
+                                    disabled={page === 1}
+                                    onClick={() => goToPage(page - 1, totalPages)}
+                                    className="border rounded px-3 py-1.5 text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
+                                >Anterior</button>
+                                {
+                                    getPageNumbers(page, totalPages).map((p, index) =>
+                                        p === "..."
+                                            ? <span key={`ellipsis-${index}`} className="px-2 text-slate-400">…</span>
+                                            : (
+                                                <button
+                                                    key={p}
+                                                    onClick={() => goToPage(p, totalPages)}
+                                                    className={`min-w-[2.25rem] rounded px-2 py-1.5 text-sm border ${
+                                                        p === page
+                                                            ? "bg-blue-600 border-blue-600 text-white font-semibold"
+                                                            : "hover:bg-slate-50"
+                                                    }`}
+                                                >{p}</button>
+                                            )
+                                    )
+                                }
+                                <button
+                                    disabled={page === totalPages}
+                                    onClick={() => goToPage(page + 1, totalPages)}
+                                    className="border rounded px-3 py-1.5 text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
+                                >Siguiente</button>
+                                <button
+                                    disabled={page === totalPages}
+                                    onClick={() => goToPage(totalPages, totalPages)}
+                                    className="border rounded px-3 py-1.5 text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
+                                    title="Última página"
+                                >»</button>
+                                <form
+                                    className="flex items-center gap-1 ml-2"
+                                    onSubmit={(e) => {
+                                        e.preventDefault();
+                                        if (jumpValue) {
+                                            goToPage(Number(jumpValue), totalPages);
+                                            setJumpValue("");
+                                        }
+                                    }}
+                                >
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={totalPages}
+                                        value={jumpValue}
+                                        onChange={(e) => setJumpValue(e.target.value)}
+                                        placeholder="Ir a…"
+                                        className="w-16 rounded border px-2 py-1 text-sm"
+                                    />
+                                    <button
+                                        type="submit"
+                                        className="border rounded px-3 py-1.5 text-sm hover:bg-slate-50"
+                                    >Ir</button>
+                                </form>
+                            </div>
+                        </div>
+                    );
+                })()
+            }
         </div>
     );
 }
