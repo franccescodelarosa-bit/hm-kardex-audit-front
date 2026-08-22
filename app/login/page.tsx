@@ -3,7 +3,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { signIn, fetchAuthSession } from "aws-amplify/auth";
+import { signIn, signOut, fetchAuthSession } from "aws-amplify/auth";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,14 +19,32 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const trySignIn = async (retrying = false): Promise<any> => {
+    try {
+      return await signIn({
+        username: email,
+        password,
+      });
+    } catch (err: any) {
+      const isStaleSession =
+        err?.name === "UserAlreadyAuthenticatedException" ||
+        err?.message?.includes("already a signed in user");
+
+      if (!retrying && isStaleSession) {
+        await signOut();
+
+        return trySignIn(true);
+      }
+
+      throw err;
+    }
+  };
+
   const handleLogin = async () => {
     try {
       setLoading(true);
       setError("");
-      const result = await signIn({
-        username: email,
-        password,
-      });
+      const result = await trySignIn();
 
       console.log("LOGIN", result);
 

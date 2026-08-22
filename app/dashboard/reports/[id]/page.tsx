@@ -1,14 +1,50 @@
 "use client";
-import { useEffect, useState, Fragment } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { getFinding } from "@/services/audit-results.services";
 import { getDashboard, getRules, getFindings } from "@/services/audit-results.services";
-import { FileSpreadsheet } from "lucide-react";
+import {
+    FileSpreadsheet,
+    FileSearch,
+    Lightbulb,
+    X,
+    Search,
+    Download,
+    ChevronLeft,
+    ChevronRight,
+    ChevronsLeft,
+    ChevronsRight,
+} from "lucide-react";
 import { fetchAuthSession } from "aws-amplify/auth";
 import { ExecutiveDashboardHelper } from "../../../../components/helpers/executive-dashboard.helper";
 import { updateAuditFollowUp } from "../../../../services/audit-results.services";
+import { createRuleTranslator, formatRuleCode, ruleNumber } from "@/lib/rule-translator";
+import { translateRiskLevel, getRiskLevelColor } from "@/lib/risk-level";
+import { formatMetadataLabel } from "@/lib/finding-metadata";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
+
+const RISK_FILTERS = [
+    { value: "", label: "Todos" },
+    { value: "CRITICO", label: "Crítico" },
+    { value: "ALTO", label: "Alto" },
+    { value: "MEDIO", label: "Medio" },
+];
+
+const COMBINING_MARKS = new RegExp(
+    "[" + String.fromCharCode(0x0300) + "-" + String.fromCharCode(0x036f) + "]",
+    "g"
+);
+
+function normalizeAccents(value: string | null | undefined): string {
+    if (!value) return "";
+    return value
+        .trim()
+        .normalize("NFD")
+        .replace(COMBINING_MARKS, "")
+        .toUpperCase();
+}
+
 export default function ReportDetailPage() {
     const { id } = useParams();
     const [loading, setLoading] = useState(true);
@@ -19,6 +55,12 @@ export default function ReportDetailPage() {
     const [page, setPage] = useState(1);
     const [selectedRule, setSelectedRule] = useState("");
     const [selectedRisk, setSelectedRisk] = useState("");
+    const [search, setSearch] = useState("");
+    const [followUpOpen, setFollowUpOpen] = useState(false);
+    const ruleTranslator = useMemo(
+        () => createRuleTranslator(rules),
+        [rules]
+    );
     const [pageSize, setPageSize] = useState(25);
     const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
     useEffect(() => {
@@ -31,26 +73,6 @@ export default function ReportDetailPage() {
         }
         const detail = await getFinding(id);
         setSelectedFinding(detail);
-    }
-    function formatLabel(key: string): string {
-        const labels: Record<string, string> = {
-            fromIndex: "Mes inicial",
-            toIndex: "Mes final",
-            differences: "Diferencias encontradas",
-            finalBalance: "Saldo Final",
-            initialBalance: "Saldo Inicial",
-            quantity: "Cantidad",
-            unitCost: "Costo Unitario",
-            totalCost: "Costo Total",
-            expectedQuantity: "Cantidad Esperada",
-            actualQuantity: "Cantidad Encontrada",
-            expectedCost: "Costo Esperado",
-            actualCost: "Costo Encontrado",
-            document: "Documento",
-            movement: "Movimiento",
-            warehouse: "Almacén"
-        };
-        return labels[key] ?? key;
     }
     /**
      * Arma la lista de números de página a mostrar, con "..." cuando hay
@@ -89,25 +111,48 @@ export default function ReportDetailPage() {
     function renderMetadata(value: any) {
         if (Array.isArray(value)) {
             return (
-                <ul className="list-disc ml-6">
+                <ul className="list-disc ml-5 space-y-1 text-sm text-slate-700">
                     {value.map((item, index) => (
-                        <li key={index}>{String(item)}</li>
+                        <li key={index}>
+                            {typeof item === "object" && item !== null
+                                ? renderMetadata(item)
+                                : String(item)}
+                        </li>
                     ))}
                 </ul>
             );
         }
         if (typeof value === "object" && value !== null) {
             return (
-                <div className="space-y-2 flex flex-row flex-wrap gap-3">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                     {
-                        Object.entries(value).map(([key, val]) => (
-                            <div key={key} className="border rounded-lg p-3">
-                                <div className="font-semibold text-gray-700 mb-2">{formatLabel(key)}</div>
-                                {renderMetadata(val)}
-                            </div>
-                        ))
+                        Object.entries(value).map(([key, val]) => {
+                            const isGroup = typeof val === "object" && val !== null;
+                            return (
+                                <div
+                                    key={key}
+                                    className={`rounded-lg border border-slate-200 bg-white p-3 ${
+                                        isGroup ? "col-span-full bg-slate-50" : ""
+                                    }`}
+                                >
+                                    <div className="text-xs font-medium uppercase tracking-wide text-slate-500 mb-1">
+                                        {formatMetadataLabel(key)}
+                                    </div>
+                                    <div className="text-sm font-semibold text-slate-800">
+                                        {renderMetadata(val)}
+                                    </div>
+                                </div>
+                            );
+                        })
                     }
                 </div>
+            );
+        }
+        if (typeof value === "number") {
+            return (
+                <span className={value < 0 ? "text-red-600" : undefined}>
+                    {value.toLocaleString("es-PE")}
+                </span>
             );
         }
         return (
@@ -156,7 +201,7 @@ export default function ReportDetailPage() {
                     }
                 }
             );
-            
+
             if (!response.ok) {
                 throw new Error("No se pudo generar el Excel.");
             }
@@ -172,6 +217,12 @@ export default function ReportDetailPage() {
         } catch (error) {
             console.error(error);
             alert("No se pudo descargar el Excel.");
+        }
+    };
+
+    const exportAllRules = async () => {
+        for (const rule of rules) {
+            await exportRule(rule.id, rule.code);
         }
     };
     useEffect(() => {
@@ -200,7 +251,7 @@ export default function ReportDetailPage() {
     const [responsible, setResponsible] = useState("");
     const [saving, setSaving] = useState(false);
     const [jumpValue, setJumpValue] = useState("");
-    
+
     const saveFollowUp = async () => {
         try {
             setSaving(true);
@@ -220,6 +271,7 @@ export default function ReportDetailPage() {
                 `Responsable: ${result.responsible}\n` +
                 `Fecha: ${new Date(result.updated_at).toLocaleString("es-PE")}`
             );
+            setFollowUpOpen(false);
         }
         catch {
             console.error(
@@ -233,387 +285,564 @@ export default function ReportDetailPage() {
     };
     if (loading)
         return <div className="p-10">Cargando...</div>;
+
+    const sortedRules = [...rules].sort((a, b) => b.count - a.count);
+    const maxRuleCount = sortedRules.reduce((max, rule) => Math.max(max, rule.count), 0);
+    const totalFindingsCount = dashboard.summary.totalFindings || 0;
+    const criticalPct = totalFindingsCount ? (findings.summary.critical / totalFindingsCount) * 100 : 0;
+    const highPct = totalFindingsCount ? (findings.summary.high / totalFindingsCount) * 100 : 0;
+    const mediumPct = totalFindingsCount ? (findings.summary.medium / totalFindingsCount) * 100 : 0;
+    const executedRulesCount = dashboard.summary.executedRules || 0;
+    const passedRulesCount = dashboard.summary.passedRules || 0;
+
+    const searchTerm = search.trim().toLowerCase();
+    const visibleItems = (findings?.items ?? []).filter((finding: any) => {
+        if (!searchTerm) return true;
+        const haystack = [
+            finding.productCode,
+            formatRuleCode(finding.rule?.code),
+            ruleTranslator.translate(finding.rule?.code),
+            finding.description,
+        ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+        return haystack.includes(searchTerm);
+    });
+
     return (
-        <div className="p-8 space-y-8">
-            <div className="grid grid-cols-12 gap-8">
-                <div className="col-span-8">
-                    <div className="flex gap-2 align-center mb-2">                        
+        <div className="p-8 space-y-6">
+            {/* Encabezado */}
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <div className="flex flex-wrap items-center gap-3">
                         <span
-                            className={`rounded-full px-4 py-2 text-sm font-bold ${
-                                dashboard.summary.generalStatus === "APROBADO"
+                            className={`rounded-full px-3 py-1 text-xs font-bold ${
+                                normalizeAccents(dashboard.summary.generalStatus) === "APROBADO"
                                     ? "bg-green-100 text-green-700"
-                                    : dashboard.summary.generalStatus === "CRÍTICO"
+                                    : normalizeAccents(dashboard.summary.generalStatus) === "CRITICO"
                                     ? "bg-red-100 text-red-700"
                                     : "bg-yellow-100 text-yellow-700"
                             }`}
                         >
                             {dashboard.summary.generalStatus}
                         </span>
-                        <h1 className="text-4xl font-bold">
+                        <h1 className="text-3xl font-bold text-slate-900">
                             {dashboard.audit.client}
                         </h1>
                     </div>
-                    <h4 className="text-sm text-slate-500 mt-1">
-                        ID: {dashboard.audit.id}
-                    </h4>
-                    <p className="text-gray-500 mt-1">
-                        Auditoría {dashboard.audit.year}
-                    </p>               
-                    <div className="mt-6 grid grid-cols-3 gap-4">
-                        <div className="rounded-xl bg-white p-5">
-                            <p className="text-sm text-slate-600">
-                                Reglas Ejecutadas
-                            </p>
-                            <h2 className="mt-2 text-3xl font-bold">
-                                {dashboard.summary.executedRules}
-                            </h2>
-                        </div>
-                        <div className="rounded-xl bg-white p-5">
-                            <p className="text-sm text-slate-600">
-                                Cumplimiento
-                            </p>
-                            <h2 className="mt-2 text-3xl font-bold">
-                                {dashboard.summary.compliance}%
-                            </h2>
-                        </div>
-
-                        <div className="rounded-xl bg-white p-5">
-                            <p className="text-sm text-slate-600">
-                                Productos Afectados
-                            </p>
-                            <h2 className="mt-2 text-3xl font-bold">
-                                {dashboard.summary.affectedProducts}
-                            </h2>
-                        </div>
-
-                        <div className="rounded-xl bg-white p-5">
-                            <p className="text-sm text-slate-600">
-                                Reglas Incumplidas
-                            </p>
-                            <h2 className="mt-2 text-3xl font-bold">
-                                {dashboard.summary.failedRules}
-                            </h2>
-                        </div>
-
-                        <div className="rounded-xl bg-white p-5">
-                            <p className="text-sm text-slate-600">
-                                Impacto Económico
-                            </p>
-                            <h2 className="mt-2 text-3xl font-bold">
-                                S/. {dashboard.summary.economicImpact.toLocaleString()}
-                            </h2>
-                        </div>
-                        <div className="rounded-xl bg-white p-5">
-                            <p className="text-sm text-slate-600">
-                                Reglas Aprobadas
-                            </p>
-                            <h2 className="mt-2 text-3xl font-bold">
-                                {dashboard.summary.passedRules}
-                            </h2>
-                        </div>
-                    </div>     
-                    <div className="mt-5 grid grid-cols-4 gap-4">
-                        <div className="bg-white rounded-xl shadow p-6">
-                            <p className="text-gray-500">
-                                Hallazgos
-                            </p>
-                            <h2 className="text-4xl font-bold">
-                                {dashboard.summary.totalFindings}
-                            </h2>
-                        </div>
-                        <div className="bg-red-50 rounded-xl p-6">
-                            <p>CRITICO</p>
-                            <h2 className="text-3xl font-bold">
-                                {findings.summary.critical}
-                            </h2>
-                        </div>
-                        <div className="bg-yellow-50 rounded-xl p-6">
-                            <p>ALTO</p>
-                            <h2 className="text-3xl font-bold">
-                                {findings.summary.high}
-                            </h2>
-                        </div>
-                        <div className="bg-green-50 rounded-xl p-6">
-                            <p>MEDIO</p>
-                            <h2 className="text-3xl font-bold">
-                                {findings.summary.medium}
-                            </h2>
-                        </div>
-                    </div>
+                    <p className="mt-1 text-sm text-slate-500">
+                        {dashboard.audit.id} · AUDITORÍA {dashboard.audit.year} · {executedRulesCount} reglas ejecutadas
+                    </p>
                 </div>
-                <div className="col-span-4 rounded-xl border bg-white shadow-sm p-5">
-                    <h3 className="text-lg font-bold mb-4">
-                        Seguimiento de Regularización
-                    </h3>
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium mb-1">
-                                Responsable
-                            </label>
-                            <input
-                                value={responsible}
-                                onChange={(e) => setResponsible(e.target.value)}
-                                className="w-full rounded-lg border p-2"
-                                placeholder="Nombre del responsable"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium mb-1">
-                                Fecha de Regularización
-                            </label>
-                            <input
-                                type="date"
-                                value={regularizationDate}
-                                onChange={(e) => setRegularizationDate(e.target.value)}
-                                className="w-full rounded-lg border p-2"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium mb-1">
-                                Acción Correctiva
-                            </label>
-                            <textarea
-                                rows={2}
-                                value={correctiveAction}
-                                onChange={(e) => setCorrectiveAction(e.target.value)}
-                                className="w-full rounded-lg border p-2"
-                                placeholder="Acciones realizadas para regularizar..."
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium mb-1">
-                                Observaciones
-                            </label>
-                            <textarea
-                                rows={3}
-                                value={observations}
-                                onChange={(e) => setObservations(e.target.value)}
-                                className="w-full rounded-lg border p-2"
-                                placeholder="Observaciones adicionales..."
-                            />
-                        </div>
-                        <button
-                            onClick={saveFollowUp}
-                            disabled={saving}
-                            className="
-                                w-full
-                                rounded-lg
-                                bg-blue-600
-                                py-2
-                                font-semibold
-                                text-white
-                                hover:bg-blue-700
-                                disabled:opacity-50
-                            "
-                        >
-
-                            {
-                                saving
-                                    ? "Guardando..."
-                                    : "Guardar Seguimiento"
-                            }
-
-                        </button>
-                    </div>
+                <div className="flex gap-2">
+                    <button
+                        onClick={exportAllRules}
+                        className="flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                        <Download size={16} />
+                        Exportar todo
+                    </button>
+                    <button
+                        onClick={() => setFollowUpOpen(true)}
+                        className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                    >
+                        Registrar seguimiento
+                    </button>
                 </div>
             </div>
-            <div className="rounded-lg border bg-white p-4">
-                <div className="flex items-center justify-between mb-4">
-                    <div>
-                        <h3 className="text-lg font-semibold">Reglas Incumplidas</h3>
-                        <p className="text-sm text-slate-500">Selecciona una regla para revisar los hallazgos o descargar el Excel.</p>
+
+            {/* Panel de indicadores */}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-xl border bg-white p-5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Severidad de {totalFindingsCount.toLocaleString("es-PE")} hallazgos
+                    </p>
+                    <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div className="bg-red-500" style={{ width: `${criticalPct}%` }} />
+                        <div className="bg-orange-400" style={{ width: `${highPct}%` }} />
+                        <div className="bg-slate-400" style={{ width: `${mediumPct}%` }} />
                     </div>
-                    {
-                        selectedRule &&
+                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+                        <span className="flex items-center gap-1">
+                            <span className="h-2 w-2 rounded-full bg-red-500" /> Crítico {findings.summary.critical.toLocaleString("es-PE")}
+                        </span>
+                        <span className="flex items-center gap-1">
+                            <span className="h-2 w-2 rounded-full bg-orange-400" /> Alto {findings.summary.high.toLocaleString("es-PE")}
+                        </span>
+                        <span className="flex items-center gap-1">
+                            <span className="h-2 w-2 rounded-full bg-slate-400" /> Medio {findings.summary.medium.toLocaleString("es-PE")}
+                        </span>
+                    </div>
+                </div>
+
+                <div className="rounded-xl border bg-white p-5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Cumplimiento de reglas
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-1">
+                        {Array.from({ length: executedRulesCount }).map((_, index) => (
+                            <span
+                                key={index}
+                                className={`h-3 w-5 rounded-sm ${
+                                    index < passedRulesCount ? "bg-green-500" : "bg-red-200"
+                                }`}
+                            />
+                        ))}
+                    </div>
+                    <p className="mt-3 text-sm text-slate-600">
+                        <b className="text-slate-800">{passedRulesCount} de {executedRulesCount}</b> aprobadas · {dashboard.summary.compliance}%
+                    </p>
+                </div>
+
+                <div className="rounded-xl border bg-white p-5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Impacto económico
+                    </p>
+                    <h2 className="mt-2 text-3xl font-bold text-red-600">
+                        S/ {dashboard.summary.economicImpact.toLocaleString("es-PE")}
+                    </h2>
+                    <p className="mt-1 text-xs text-slate-500">
+                        expuesto en {dashboard.summary.failedRules} reglas
+                    </p>
+                </div>
+
+                <div className="rounded-xl border bg-white p-5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Productos afectados
+                    </p>
+                    <h2 className="mt-2 text-3xl font-bold text-slate-900">
+                        {dashboard.summary.affectedProducts.toLocaleString("es-PE")}
+                    </h2>
+                    <p className="mt-1 text-xs text-slate-500">
+                        del inventario {dashboard.audit.year}
+                    </p>
+                </div>
+            </div>
+
+            {/* Reglas incumplidas: tarjetas que se envuelven en filas (flex-wrap), sin scroll horizontal ni vertical */}
+            <div className="rounded-xl border bg-white p-4">
+                <div className="mb-3 flex items-center justify-between">
+                    <div>
+                        <h3 className="text-sm font-semibold text-slate-800">
+                            Reglas incumplidas · {rules.length}
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                            Ordenadas por volumen de hallazgos
+                        </p>
+                    </div>
+                    {selectedRule && (
                         <button
                             onClick={() => {
                                 setSelectedRule("");
                                 setPage(1);
                             }}
-                            className="text-sm text-blue-600 hover:underline"
+                            className="text-xs font-medium text-blue-600 hover:underline"
                         >
                             Ver todas
                         </button>
-                    }
+                    )}
                 </div>
-                <div className="space-y-2 flex flex-wrap gap-3">
-                    {
-                        rules.map(rule => {
-                            const selected = selectedRule === rule.id;
-                            return (
-                                <div
-                                    key={rule.id}
-                                    className={`flex items-center justify-between rounded-lg border px-4 py-3 transition ${
-                                        selected
-                                            ? "border-blue-500 bg-blue-50"
-                                            : "hover:bg-slate-50"
-                                    }`}
-                                >
+                <div className="flex flex-wrap gap-3">
+                    {sortedRules.map((rule) => {
+                        const selected = selectedRule === rule.id;
+                        const widthPct = maxRuleCount ? (rule.count / maxRuleCount) * 100 : 0;
+                        return (
+                            <div
+                                key={rule.id}
+                                className={`w-56 shrink-0 overflow-hidden rounded-lg border p-3 transition ${
+                                    selected
+                                        ? "border-blue-400 bg-blue-50"
+                                        : "border-slate-200 hover:bg-slate-50"
+                                }`}
+                            >
+                                <div className="flex items-center gap-2">
                                     <button
-                                        className="flex-1 text-left"
+                                        className="min-w-0 flex-1 text-left"
                                         onClick={() => {
-                                            setSelectedRule(rule.id);
+                                            setSelectedRule(selected ? "" : rule.id);
                                             setPage(1);
                                         }}
                                     >
-                                        <div className="font-semibold">{rule.code}</div>
-                                        <div className="text-sm text-slate-500">{rule.name}</div>
+                                        <div className="flex items-baseline justify-between gap-2">
+                                            <span className="text-xs font-bold text-red-600">
+                                                {ruleNumber(rule.code)}
+                                            </span>
+                                            <span className="text-xs font-semibold text-slate-500">
+                                                {rule.count.toLocaleString("es-PE")}
+                                            </span>
+                                        </div>
+                                        <div className="truncate text-sm text-slate-700" title={rule.name}>
+                                            {rule.name}
+                                        </div>
                                     </button>
-                                    <div className="flex items-center gap-4">
-                                        <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold">{rule.count}</span>
-                                        <button
-                                            title="Exportar Excel"
-                                            onClick={() => exportRule(rule.id, rule.code)}
-                                            className="rounded-md p-2 hover:bg-green-100"
-                                        >
-                                            <FileSpreadsheet size={22} className="text-green-700" />
-                                        </button>
-                                    </div>
+                                    <button
+                                        title="Exportar Excel"
+                                        onClick={() => exportRule(rule.id, rule.code)}
+                                        className="rounded p-1 text-slate-400 hover:bg-green-100 hover:text-green-700"
+                                    >
+                                        <FileSpreadsheet size={14} />
+                                    </button>
                                 </div>
-                            );
-                        })
-                    }
+                                <div className="mt-2 h-1 rounded-full bg-slate-100">
+                                    <div
+                                        className="h-1 rounded-full bg-red-500"
+                                        style={{ width: `${widthPct}%` }}
+                                    />
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
-            <div className="bg-white rounded-xl shadow overflow-auto">
-                <table className="w-full">
-                    <thead>
-                        <tr className="bg-gray-100">
-                            <th className="p-3 text-left">Producto</th>
-                            <th className="p-3 text-left">Mes</th>
-                            <th className="p-3 text-left">Regla</th>
-                            <th className="p-3 text-left">Riesgo</th>
-                            <th className="p-3 text-left">Descripción</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {
-                            findings?.items?.map((finding: any) => (
-                                <Fragment key={finding.id}>
+
+            {/* Buscador + tabs de riesgo + tabla de hallazgos */}
+            <div className="space-y-4">
+                <div className="flex flex-col gap-3 rounded-xl border bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="relative w-full sm:max-w-xs">
+                        <Search
+                            size={16}
+                            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                        />
+                        <input
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Buscar producto, regla o descripción"
+                            className="w-full rounded-lg border py-2 pl-9 pr-3 text-sm"
+                        />
+                    </div>
+                    <div className="flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1">
+                        {RISK_FILTERS.map((filter) => (
+                            <button
+                                key={filter.value || "all"}
+                                onClick={() => {
+                                    setSelectedRisk(filter.value);
+                                    setPage(1);
+                                }}
+                                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                                    selectedRisk === filter.value
+                                        ? "bg-slate-900 text-white"
+                                        : "text-slate-600 hover:bg-white"
+                                }`}
+                            >
+                                {filter.label}
+                            </button>
+                        ))}
+                    </div>
+                    <span className="whitespace-nowrap text-xs text-slate-500">
+                        {visibleItems.length} de {(findings.total ?? 0).toLocaleString("es-PE")} hallazgos
+                    </span>
+                </div>
+
+                <div className="bg-white rounded-xl shadow overflow-auto">
+                    <table className="w-full">
+                        <thead>
+                            <tr className="bg-gray-100">
+                                <th className="p-3 text-left">Producto</th>
+                                <th className="p-3 text-left">Mes</th>
+                                <th className="p-3 text-left">Regla</th>
+                                <th className="p-3 text-left">Riesgo</th>
+                                <th className="p-3 text-left">Descripción</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {
+                                visibleItems.map((finding: any) => (
                                     <tr
-                                        className="border-b hover:bg-slate-50 cursor-pointer"
+                                        key={finding.id}
+                                        className={`border-b cursor-pointer transition ${
+                                            selectedFinding?.id === finding.id
+                                                ? "bg-blue-50"
+                                                : "hover:bg-slate-50"
+                                        }`}
                                         onClick={() => loadFinding(finding.id)}
                                     >
                                         <td className="p-3">{finding.productCode}</td>
                                         <td className="p-3">{finding.month}</td>
-                                        <td className="p-3">{finding.rule?.code}</td>
-                                        <td className="p-3">{finding.rule?.riskLevel}</td>
+                                        <td className="p-3">
+                                            <div className="font-medium">
+                                                {formatRuleCode(finding.rule?.code)}
+                                            </div>
+                                            <div className="text-xs text-slate-500">
+                                                {ruleTranslator.translate(finding.rule?.code)}
+                                            </div>
+                                        </td>
+                                        <td className="p-3">
+                                            <span
+                                                className={`rounded-full px-3 py-1 text-xs font-semibold ${getRiskLevelColor(
+                                                    finding.riskLevel
+                                                )}`}
+                                            >
+                                                {translateRiskLevel(finding.riskLevel)}
+                                            </span>
+                                        </td>
                                         <td className="p-3">{finding.description}</td>
                                     </tr>
-                                    {selectedFinding?.id === finding.id && (
-                                        <tr className="bg-slate-50">
-                                            <td colSpan={5} className="p-6">
-                                                <h3 className="text-lg font-bold mb-4">Evidencia del Hallazgo</h3>
-                                                <div className="mb-4">               
-                                                    <strong>Recomendación:</strong><p className="mt-1">{selectedFinding.recommendation}</p>
-                                                </div>
-                                                <div className="mt-4">
-                                                    {renderMetadata(selectedFinding.metadata)}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    )}
-                                </Fragment>                            
-                            ))
-                        }
-                    </tbody>
-                </table>
-            </div>
-            {
-                findings &&
-                (() => {
-                    const total = findings.total ?? 0;
-                    const totalPages = Math.max(1, Math.ceil(total / pageSize));
-                    const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
-                    const rangeEnd = Math.min(page * pageSize, total);
-                    return (
-                        <div className="flex flex-col gap-3 rounded-lg border bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="flex items-center gap-3 text-sm text-slate-500">
-                                <span>
-                                    Mostrando <b className="text-slate-700">{rangeStart}–{rangeEnd}</b> de <b className="text-slate-700">{total}</b> hallazgos
-                                </span>
-                                <label className="flex items-center gap-2">
-                                    <span>Por página:</span>
-                                    <select
-                                        value={pageSize}
-                                        onChange={(e) => handlePageSizeChange(Number(e.target.value))}
-                                        className="rounded border px-2 py-1"
-                                    >
-                                        {PAGE_SIZE_OPTIONS.map(size => (
-                                            <option key={size} value={size}>{size}</option>
-                                        ))}
-                                    </select>
-                                </label>
-                            </div>
-                            <div className="flex items-center gap-1 flex-wrap">
-                                <button
-                                    disabled={page === 1}
-                                    onClick={() => goToPage(1, totalPages)}
-                                    className="border rounded px-3 py-1.5 text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
-                                    title="Primera página"
-                                >«</button>
-                                <button
-                                    disabled={page === 1}
-                                    onClick={() => goToPage(page - 1, totalPages)}
-                                    className="border rounded px-3 py-1.5 text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
-                                >Anterior</button>
-                                {
-                                    getPageNumbers(page, totalPages).map((p, index) =>
-                                        p === "..."
-                                            ? <span key={`ellipsis-${index}`} className="px-2 text-slate-400">…</span>
-                                            : (
-                                                <button
-                                                    key={p}
-                                                    onClick={() => goToPage(p, totalPages)}
-                                                    className={`min-w-[2.25rem] rounded px-2 py-1.5 text-sm border ${
-                                                        p === page
-                                                            ? "bg-blue-600 border-blue-600 text-white font-semibold"
-                                                            : "hover:bg-slate-50"
-                                                    }`}
-                                                >{p}</button>
-                                            )
-                                    )
-                                }
-                                <button
-                                    disabled={page === totalPages}
-                                    onClick={() => goToPage(page + 1, totalPages)}
-                                    className="border rounded px-3 py-1.5 text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
-                                >Siguiente</button>
-                                <button
-                                    disabled={page === totalPages}
-                                    onClick={() => goToPage(totalPages, totalPages)}
-                                    className="border rounded px-3 py-1.5 text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
-                                    title="Última página"
-                                >»</button>
-                                <form
-                                    className="flex items-center gap-1 ml-2"
-                                    onSubmit={(e) => {
-                                        e.preventDefault();
-                                        if (jumpValue) {
-                                            goToPage(Number(jumpValue), totalPages);
-                                            setJumpValue("");
-                                        }
-                                    }}
-                                >
-                                    <input
-                                        type="number"
-                                        min={1}
-                                        max={totalPages}
-                                        value={jumpValue}
-                                        onChange={(e) => setJumpValue(e.target.value)}
-                                        placeholder="Ir a…"
-                                        className="w-16 rounded border px-2 py-1 text-sm"
-                                    />
+                                ))
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                {
+                    findings &&
+                    (() => {
+                        const total = findings.total ?? 0;
+                        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+                        const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
+                        const rangeEnd = Math.min(page * pageSize, total);
+                        return (
+                            <div className="flex flex-col gap-3 rounded-lg border bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500">
+                                    <span>
+                                        Mostrando <b className="text-slate-700">{rangeStart}–{rangeEnd}</b> de <b className="text-slate-700">{total}</b> hallazgos
+                                    </span>
+                                    <label className="flex items-center gap-2">
+                                        <span>Por página:</span>
+                                        <select
+                                            value={pageSize}
+                                            onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                                            className="h-8 rounded-lg border px-2 text-sm"
+                                        >
+                                            {PAGE_SIZE_OPTIONS.map(size => (
+                                                <option key={size} value={size}>{size}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-1">
                                     <button
-                                        type="submit"
-                                        className="border rounded px-3 py-1.5 text-sm hover:bg-slate-50"
-                                    >Ir</button>
-                                </form>
+                                        disabled={page === 1}
+                                        onClick={() => goToPage(1, totalPages)}
+                                        className="flex h-8 w-8 items-center justify-center rounded-lg border text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+                                        title="Primera página"
+                                    >
+                                        <ChevronsLeft size={16} />
+                                    </button>
+                                    <button
+                                        disabled={page === 1}
+                                        onClick={() => goToPage(page - 1, totalPages)}
+                                        className="flex h-8 w-8 items-center justify-center rounded-lg border text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+                                        title="Anterior"
+                                    >
+                                        <ChevronLeft size={16} />
+                                    </button>
+
+                                    <div className="flex items-center gap-1 px-1">
+                                        {
+                                            getPageNumbers(page, totalPages).map((p, index) =>
+                                                p === "..."
+                                                    ? <span key={`ellipsis-${index}`} className="px-1 text-slate-400">…</span>
+                                                    : (
+                                                        <button
+                                                            key={p}
+                                                            onClick={() => goToPage(p, totalPages)}
+                                                            className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-sm font-medium transition ${
+                                                                p === page
+                                                                    ? "bg-slate-900 text-white"
+                                                                    : "text-slate-600 hover:bg-slate-100"
+                                                            }`}
+                                                        >{p}</button>
+                                                    )
+                                            )
+                                        }
+                                    </div>
+
+                                    <button
+                                        disabled={page === totalPages}
+                                        onClick={() => goToPage(page + 1, totalPages)}
+                                        className="flex h-8 w-8 items-center justify-center rounded-lg border text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+                                        title="Siguiente"
+                                    >
+                                        <ChevronRight size={16} />
+                                    </button>
+                                    <button
+                                        disabled={page === totalPages}
+                                        onClick={() => goToPage(totalPages, totalPages)}
+                                        className="flex h-8 w-8 items-center justify-center rounded-lg border text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+                                        title="Última página"
+                                    >
+                                        <ChevronsRight size={16} />
+                                    </button>
+
+                                    <form
+                                        className="ml-2 flex items-center gap-1.5 border-l pl-3"
+                                        onSubmit={(e) => {
+                                            e.preventDefault();
+                                            if (jumpValue) {
+                                                goToPage(Number(jumpValue), totalPages);
+                                                setJumpValue("");
+                                            }
+                                        }}
+                                    >
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            max={totalPages}
+                                            value={jumpValue}
+                                            onChange={(e) => setJumpValue(e.target.value)}
+                                            placeholder="Ir a…"
+                                            className="h-8 w-16 rounded-lg border px-2 text-sm"
+                                        />
+                                        <button
+                                            type="submit"
+                                            className="flex h-8 items-center rounded-lg border px-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                                        >
+                                            Ir
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        );
+                    })()
+                }
+            </div>
+
+            {/* Modal: Evidencia del Hallazgo */}
+            {selectedFinding && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+                    onClick={() => setSelectedFinding(null)}
+                >
+                    <div
+                        className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl bg-white shadow-xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between border-b p-5">
+                            <div className="flex items-center gap-2">
+                                <FileSearch size={18} className="text-blue-600" />
+                                <h3 className="text-base font-bold text-slate-800">
+                                    Evidencia del Hallazgo
+                                </h3>
+                            </div>
+                            <button
+                                onClick={() => setSelectedFinding(null)}
+                                className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="space-y-4 overflow-y-auto p-5">
+                            {selectedFinding.recommendation && (
+                                <div className="flex gap-3 rounded-lg border border-blue-100 bg-blue-50 p-4">
+                                    <Lightbulb size={18} className="mt-0.5 shrink-0 text-blue-600" />
+                                    <div>
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 mb-1">
+                                            Recomendación
+                                        </p>
+                                        <p className="text-sm text-slate-700">
+                                            {selectedFinding.recommendation}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                                    Detalle
+                                </p>
+                                {renderMetadata(selectedFinding.metadata)}
                             </div>
                         </div>
-                    );
-                })()
-            }
+                    </div>
+                </div>
+            )}
+
+            {/* Drawer: Registrar seguimiento */}
+            {followUpOpen && (
+                <div
+                    className="fixed inset-0 z-50 flex justify-end bg-slate-900/40"
+                    onClick={() => setFollowUpOpen(false)}
+                >
+                    <div
+                        className="flex h-full w-full max-w-md flex-col bg-white shadow-xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-start justify-between border-b p-5">
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-900">
+                                    Seguimiento de regularización
+                                </h3>
+                                <p className="text-sm text-slate-500">
+                                    {dashboard.audit.client} · {dashboard.audit.year}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setFollowUpOpen(false)}
+                                className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="flex-1 space-y-4 overflow-y-auto p-5">
+                            <div>
+                                <label className="mb-1 block text-sm font-medium">
+                                    Responsable
+                                </label>
+                                <input
+                                    value={responsible}
+                                    onChange={(e) => setResponsible(e.target.value)}
+                                    className="w-full rounded-lg border p-2"
+                                    placeholder="Nombre del responsable"
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-1 block text-sm font-medium">
+                                    Fecha de regularización
+                                </label>
+                                <input
+                                    type="date"
+                                    value={regularizationDate}
+                                    onChange={(e) => setRegularizationDate(e.target.value)}
+                                    className="w-full rounded-lg border p-2"
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-1 block text-sm font-medium">
+                                    Acción correctiva
+                                </label>
+                                <textarea
+                                    rows={3}
+                                    value={correctiveAction}
+                                    onChange={(e) => setCorrectiveAction(e.target.value)}
+                                    className="w-full rounded-lg border p-2"
+                                    placeholder="Acciones realizadas para regularizar..."
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-1 block text-sm font-medium">
+                                    Observaciones
+                                </label>
+                                <textarea
+                                    rows={3}
+                                    value={observations}
+                                    onChange={(e) => setObservations(e.target.value)}
+                                    className="w-full rounded-lg border p-2"
+                                    placeholder="Observaciones adicionales..."
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex gap-2 border-t p-5">
+                            <button
+                                onClick={() => setFollowUpOpen(false)}
+                                className="flex-1 rounded-lg border py-2 font-semibold text-slate-700 hover:bg-slate-50"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={saveFollowUp}
+                                disabled={saving}
+                                className="flex-1 rounded-lg bg-slate-900 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                            >
+                                {saving ? "Guardando..." : "Guardar seguimiento"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -2,6 +2,7 @@
 import { useEffect, useState, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { updateAuditFollowUp } from "../../services/audit-results.services";
+import { translateAuditStatus } from "@/lib/audit-status";
 
 interface Props {
     report: any;
@@ -60,7 +61,7 @@ export default function ReportCard({
                         Estado Auditoría
                     </span>
                     <span className="font-semibold text-green-600">
-                        {report.status}
+                        {translateAuditStatus(report.status)}
                     </span>
                 </div>
                 <div className="flex justify-between">
