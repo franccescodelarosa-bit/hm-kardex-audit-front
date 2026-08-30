@@ -9,6 +9,7 @@ import {
 
 import {
   fetchAuthSession,
+  signOut,
 } from "aws-amplify/auth";
 
 import {
@@ -40,6 +41,25 @@ export function AuthProvider({
     loadUser();
   }, []);
 
+  const redirectToLogin =
+    async () => {
+
+      try {
+
+        await signOut();
+
+      } catch (error) {
+
+        console.error(error);
+
+      }
+
+      router.replace(
+        "/login"
+      );
+
+    };
+
   const loadUser =
     async () => {
 
@@ -53,9 +73,7 @@ export function AuthProvider({
 
         if (!token) {
 
-          router.replace(
-            "/login"
-          );
+          await redirectToLogin();
 
           return;
         }
@@ -73,9 +91,7 @@ export function AuthProvider({
 
         if (!response.ok) {
 
-          router.replace(
-            "/login"
-          );
+          await redirectToLogin();
 
           return;
         }
@@ -89,9 +105,7 @@ export function AuthProvider({
 
         console.error(error);
 
-        router.replace(
-          "/login"
-        );
+        await redirectToLogin();
 
       } finally {
 

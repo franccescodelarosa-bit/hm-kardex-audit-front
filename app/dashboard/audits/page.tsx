@@ -2,6 +2,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchAuthSession } from "aws-amplify/auth";
+import {
+  AUDIT_STATUS_OPTIONS,
+  getAuditStatusColor,
+  translateAuditStatus,
+} from "@/lib/audit-status";
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export default function AuditsPage() {
@@ -53,13 +58,6 @@ export default function AuditsPage() {
     } catch (error) {
             console.error(error);
     }
-  };
-  const statusColors = {
-    PENDING:"bg-yellow-100 text-yellow-700",
-    IN_PROGRESS:"bg-blue-100 text-blue-700",
-    READY_FOR_AUDIT:"bg-green-100 text-green-700",
-    AUDITING:"bg-purple-100 text-purple-700 animate-pulse",
-    COMPLETED: "bg-emerald-100 text-emerald-700",
   };
   const createAudit = async () => {
     try {
@@ -233,25 +231,11 @@ export default function AuditsPage() {
                         Todos los estados
                         </option>
 
-                        <option value="PENDING">
-                        Pendiente
+                        {AUDIT_STATUS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                        {option.label}
                         </option>
-
-                        <option value="IN_PROGRESS">
-                        En Progreso
-                        </option>
-
-                        <option value="READY_FOR_AUDIT">
-                        Lista para Auditoría
-                        </option>
-
-                        <option value="AUDITING">
-                        Auditando
-                        </option>
-
-                        <option value="COMPLETED">
-                        Completada
-                        </option>
+                        ))}
 
                     </select>
                 </div>
@@ -265,8 +249,8 @@ export default function AuditsPage() {
                                     <div className="text-sm text-slate-500"> Año {audit.year} </div>
                                 </div>
                                 <div>
-                                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${ statusColors[audit.status as keyof typeof statusColors]}`}>
-                                        {audit.status}
+                                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getAuditStatusColor(audit.status)}`}>
+                                        {translateAuditStatus(audit.status)}
                                     </span>
                                 </div>
                             </div>    
