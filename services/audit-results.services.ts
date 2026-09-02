@@ -85,3 +85,55 @@ export async function updateAuditFollowUp(
     );
     return await response.json();
 }
+
+export interface GeneratedReportStatus {
+    reportId: string;
+    status: "PENDING" | "READY" | "ERROR";
+    downloadUrl?: string;
+    errorMessage?: string;
+}
+
+export async function startZipReport(
+    auditJobId: string
+): Promise<GeneratedReportStatus> {
+    const response = await fetch(
+        `${API}/auditsresult/${auditJobId}/reports/zip`,
+        {
+            method: "POST",
+            headers: await headers()
+        }
+    );
+    if (!response.ok)
+        throw new Error("No se pudo iniciar la generación del reporte.");
+    return response.json();
+}
+
+export async function getReportStatus(
+    reportId: string
+): Promise<GeneratedReportStatus> {
+    const response = await fetch(
+        `${API}/auditsresult/reports/${reportId}`,
+        {
+            headers: await headers()
+        }
+    );
+    if (!response.ok)
+        throw new Error("No se pudo consultar el estado del reporte.");
+    return response.json();
+}
+
+export async function startRuleReport(
+    auditJobId: string,
+    ruleId: string
+): Promise<GeneratedReportStatus> {
+    const response = await fetch(
+        `${API}/auditsresult/${auditJobId}/rules/${ruleId}/reports`,
+        {
+            method: "POST",
+            headers: await headers()
+        }
+    );
+    if (!response.ok)
+        throw new Error("No se pudo iniciar la generación del reporte.");
+    return response.json();
+}
