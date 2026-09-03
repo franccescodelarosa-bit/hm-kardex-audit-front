@@ -28,6 +28,8 @@ export async function getDashboard(id:string){
             headers:await headers()
         }
     );
+    if (!response.ok)
+        throw new Error("Error obteniendo el dashboard de la auditoría.");
     return response.json();
 }
 
@@ -38,6 +40,8 @@ export async function getRules(id:string){
             headers:await headers()
         }
     );
+    if (!response.ok)
+        throw new Error("Error obteniendo las reglas de la auditoría.");
     return response.json();
 }
 
@@ -52,6 +56,8 @@ export async function getFindings(
             headers:await headers()
         }
     );
+    if (!response.ok)
+        throw new Error("Error obteniendo los hallazgos de la auditoría.");
     return response.json();
 }
 
@@ -61,6 +67,8 @@ export async function getFinding(id:string){
             headers:await headers()
         }
     );
+    if (!response.ok)
+        throw new Error("Error obteniendo el detalle del hallazgo.");
     return response.json();
 }
 

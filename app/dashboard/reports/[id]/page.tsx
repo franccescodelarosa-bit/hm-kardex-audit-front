@@ -47,6 +47,7 @@ export default function ReportDetailPage() {
     const { id } = useParams();
     const [loading, setLoading] = useState(true);
     const [loadingStep, setLoadingStep] = useState(0);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const LOADING_STEPS = [
         "Cargando datos de la auditoría...",
         "Cargando hallazgos..."
@@ -170,15 +171,26 @@ export default function ReportDetailPage() {
     async function load() {
         setLoading(true);
         setLoadingStep(0);
-        const [ dashboard, rules ] = await Promise.all([
-            getDashboard(id as string),
-            getRules(id as string)
-        ]);
-        setDashboard(dashboard);
-        setRules(rules);
-        setLoadingStep(1);
-        await loadFindings();
-        setLoading(false);
+        setLoadError(null);
+        try {
+            const [ dashboard, rules ] = await Promise.all([
+                getDashboard(id as string),
+                getRules(id as string)
+            ]);
+            setDashboard(dashboard);
+            setRules(rules);
+            setLoadingStep(1);
+            await loadFindings();
+        } catch (error) {
+            console.error(error);
+            setLoadError(
+                error instanceof Error
+                    ? error.message
+                    : "No se pudo cargar la auditoría."
+            );
+        } finally {
+            setLoading(false);
+        }
     }
     async function loadFindings() {
         let filters = "";
@@ -347,6 +359,24 @@ export default function ReportDetailPage() {
                         </div>
                     ))}
                 </div>
+            </div>
+        );
+
+    if (loadError || !dashboard)
+        return (
+            <div className="flex h-[60vh] flex-col items-center justify-center gap-3 px-8 text-center">
+                <p className="text-sm font-semibold text-red-600">
+                    No se pudo cargar la auditoría
+                </p>
+                <p className="max-w-md text-sm text-slate-500">
+                    {loadError ?? "Ocurrió un error inesperado."}
+                </p>
+                <button
+                    onClick={load}
+                    className="mt-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                    Reintentar
+                </button>
             </div>
         );
 
