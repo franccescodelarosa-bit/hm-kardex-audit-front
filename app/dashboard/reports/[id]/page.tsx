@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { getFinding } from "@/services/audit-results.services";
-import { getDashboard, getRules, getFindings } from "@/services/audit-results.services";
+import { getDashboard, getRules, getFindings, startZipReport, startRuleReport, getReportStatus } from "@/services/audit-results.services";
 import {
     FileSpreadsheet,
     FileSearch,
@@ -10,19 +10,17 @@ import {
     X,
     Search,
     Download,
+    Loader2,
     ChevronLeft,
     ChevronRight,
     ChevronsLeft,
     ChevronsRight,
 } from "lucide-react";
-import { fetchAuthSession } from "aws-amplify/auth";
 import { ExecutiveDashboardHelper } from "../../../../components/helpers/executive-dashboard.helper";
 import { updateAuditFollowUp } from "../../../../services/audit-results.services";
 import { createRuleTranslator, formatRuleCode, ruleNumber } from "@/lib/rule-translator";
 import { translateRiskLevel, getRiskLevelColor } from "@/lib/risk-level";
 import { formatMetadataLabel } from "@/lib/finding-metadata";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 const RISK_FILTERS = [
     { value: "", label: "Todos" },
@@ -48,6 +46,12 @@ function normalizeAccents(value: string | null | undefined): string {
 export default function ReportDetailPage() {
     const { id } = useParams();
     const [loading, setLoading] = useState(true);
+    const [loadingStep, setLoadingStep] = useState(0);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const LOADING_STEPS = [
+        "Cargando datos de la auditoría...",
+        "Cargando hallazgos..."
+    ];
     const [dashboard, setDashboard] = useState<any>();
     const [rules, setRules] = useState<any[]>([]);
     const [findings, setFindings] = useState<any>(null);
@@ -166,14 +170,27 @@ export default function ReportDetailPage() {
     }, [page, pageSize, selectedRule, selectedRisk]);
     async function load() {
         setLoading(true);
-        const [ dashboard, rules ] = await Promise.all([
-            getDashboard(id as string),
-            getRules(id as string)
-        ]);
-        setDashboard(dashboard);
-        setRules(rules);
-        await loadFindings();
-        setLoading(false);
+        setLoadingStep(0);
+        setLoadError(null);
+        try {
+            const [ dashboard, rules ] = await Promise.all([
+                getDashboard(id as string),
+                getRules(id as string)
+            ]);
+            setDashboard(dashboard);
+            setRules(rules);
+            setLoadingStep(1);
+            await loadFindings();
+        } catch (error) {
+            console.error(error);
+            setLoadError(
+                error instanceof Error
+                    ? error.message
+                    : "No se pudo cargar la auditoría."
+            );
+        } finally {
+            setLoading(false);
+        }
     }
     async function loadFindings() {
         let filters = "";
@@ -189,40 +206,74 @@ export default function ReportDetailPage() {
         );
         setFindings(data);
     }
-    const exportRule = async (ruleId: string, ruleCode: string) => {
-        try {
-            const session = await fetchAuthSession();
-            const token = session.tokens?.idToken?.toString();
-            const response = await fetch(
-                `${API_URL}/auditsresult/${dashboard.audit.id}/rules/${ruleId}/excel`,
-                {
-                    headers: {
-                        Authorization: `Bearer ${token}`
-                    }
-                }
-            );
 
-            if (!response.ok) {
-                throw new Error("No se pudo generar el Excel.");
+    async function pollReportUntilReady(reportId: string): Promise<string> {
+        const POLL_INTERVAL_MS = 2000;
+        const MAX_ATTEMPTS = 150;
+
+        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+            const report = await getReportStatus(reportId);
+
+            if (report.status === "ERROR") {
+                throw new Error(report.errorMessage || "No se pudo generar el reporte.");
             }
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = `${dashboard.audit.id}_${ruleCode}.xlsx`;
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.URL.revokeObjectURL(url);
+            if (report.status === "READY" && report.downloadUrl) {
+                return report.downloadUrl;
+            }
+        }
+
+        throw new Error("La generación del reporte está demorando más de lo esperado. Intentá de nuevo en un momento.");
+    }
+
+    function downloadFromUrl(url: string, filename: string) {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+    }
+
+    const [exportingRuleId, setExportingRuleId] = useState<string | null>(null);
+    const [ruleExportError, setRuleExportError] = useState<string | null>(null);
+
+    const exportRule = async (ruleId: string, ruleCode: string) => {
+        setExportingRuleId(ruleId);
+        setRuleExportError(null);
+        try {
+            const { reportId } = await startRuleReport(dashboard.audit.id, ruleId);
+            const downloadUrl = await pollReportUntilReady(reportId);
+            downloadFromUrl(downloadUrl, `${dashboard.audit.id}_${ruleCode}.xlsx`);
         } catch (error) {
             console.error(error);
-            alert("No se pudo descargar el Excel.");
+            setRuleExportError(
+                error instanceof Error ? error.message : "No se pudo descargar el Excel."
+            );
+        } finally {
+            setExportingRuleId(null);
         }
     };
 
+    const [exporting, setExporting] = useState(false);
+    const [exportError, setExportError] = useState<string | null>(null);
+
     const exportAllRules = async () => {
-        for (const rule of rules) {
-            await exportRule(rule.id, rule.code);
+        setExporting(true);
+        setExportError(null);
+        try {
+            const { reportId } = await startZipReport(dashboard.audit.id);
+            const downloadUrl = await pollReportUntilReady(reportId);
+            downloadFromUrl(downloadUrl, `${dashboard.audit.id}_reporte.zip`);
+        } catch (error) {
+            console.error(error);
+            setExportError(
+                error instanceof Error
+                    ? error.message
+                    : "No se pudo exportar el reporte."
+            );
+        } finally {
+            setExporting(false);
         }
     };
     useEffect(() => {
@@ -284,7 +335,50 @@ export default function ReportDetailPage() {
 
     };
     if (loading)
-        return <div className="p-10">Cargando...</div>;
+        return (
+            <div className="flex h-[60vh] flex-col items-center justify-center gap-4 text-slate-500">
+                <Loader2 size={32} className="animate-spin text-slate-400" />
+                <p className="text-sm font-medium text-slate-600">
+                    {LOADING_STEPS[loadingStep]}
+                </p>
+                <div className="flex items-center gap-2">
+                    {LOADING_STEPS.map((step, index) => (
+                        <div key={step} className="flex items-center gap-2">
+                            <div
+                                className={`h-1.5 w-10 rounded-full transition-colors ${
+                                    index < loadingStep
+                                        ? "bg-green-500"
+                                        : index === loadingStep
+                                        ? "bg-blue-500"
+                                        : "bg-slate-200"
+                                }`}
+                            />
+                            {index < LOADING_STEPS.length - 1 && (
+                                <span className="text-slate-300">·</span>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+
+    if (loadError || !dashboard)
+        return (
+            <div className="flex h-[60vh] flex-col items-center justify-center gap-3 px-8 text-center">
+                <p className="text-sm font-semibold text-red-600">
+                    No se pudo cargar la auditoría
+                </p>
+                <p className="max-w-md text-sm text-slate-500">
+                    {loadError ?? "Ocurrió un error inesperado."}
+                </p>
+                <button
+                    onClick={load}
+                    className="mt-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                    Reintentar
+                </button>
+            </div>
+        );
 
     const sortedRules = [...rules].sort((a, b) => b.count - a.count);
     const maxRuleCount = sortedRules.reduce((max, rule) => Math.max(max, rule.count), 0);
@@ -335,20 +429,32 @@ export default function ReportDetailPage() {
                         {dashboard.audit.id} · AUDITORÍA {dashboard.audit.year} · {executedRulesCount} reglas ejecutadas
                     </p>
                 </div>
-                <div className="flex gap-2">
-                    <button
-                        onClick={exportAllRules}
-                        className="flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                        <Download size={16} />
-                        Exportar todo
-                    </button>
-                    <button
-                        onClick={() => setFollowUpOpen(true)}
-                        className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-                    >
-                        Registrar seguimiento
-                    </button>
+                <div className="flex flex-col items-end gap-1">
+                    <div className="flex gap-2">
+                        <button
+                            onClick={exportAllRules}
+                            disabled={exporting}
+                            className="flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            {exporting ? (
+                                <Loader2 size={16} className="animate-spin" />
+                            ) : (
+                                <Download size={16} />
+                            )}
+                            {exporting ? "Generando reporte..." : "Exportar todo"}
+                        </button>
+                        <button
+                            onClick={() => setFollowUpOpen(true)}
+                            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                        >
+                            Registrar seguimiento
+                        </button>
+                    </div>
+                    {exportError && (
+                        <p className="text-xs font-medium text-red-600">
+                            {exportError}
+                        </p>
+                    )}
                 </div>
             </div>
 
@@ -430,6 +536,11 @@ export default function ReportDetailPage() {
                         <p className="text-xs text-slate-500">
                             Ordenadas por volumen de hallazgos
                         </p>
+                        {ruleExportError && (
+                            <p className="mt-1 text-xs font-medium text-red-600">
+                                {ruleExportError}
+                            </p>
+                        )}
                     </div>
                     {selectedRule && (
                         <button
@@ -477,11 +588,16 @@ export default function ReportDetailPage() {
                                         </div>
                                     </button>
                                     <button
-                                        title="Exportar Excel"
+                                        title={exportingRuleId === rule.id ? "Generando..." : "Exportar Excel"}
                                         onClick={() => exportRule(rule.id, rule.code)}
-                                        className="rounded p-1 text-slate-400 hover:bg-green-100 hover:text-green-700"
+                                        disabled={exportingRuleId === rule.id}
+                                        className="rounded p-1 text-slate-400 hover:bg-green-100 hover:text-green-700 disabled:cursor-not-allowed disabled:opacity-60"
                                     >
-                                        <FileSpreadsheet size={14} />
+                                        {exportingRuleId === rule.id ? (
+                                            <Loader2 size={14} className="animate-spin" />
+                                        ) : (
+                                            <FileSpreadsheet size={14} />
+                                        )}
                                     </button>
                                 </div>
                                 <div className="mt-2 h-1 rounded-full bg-slate-100">
